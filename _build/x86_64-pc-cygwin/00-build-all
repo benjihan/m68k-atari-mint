@@ -1,0 +1,24 @@
+#!/bin/bash -e
+#
+
+cd "$(dirname "$0")"
+
+./01-configure-binutils-stage1 --force
+
+./02-configure-gcc-stage1 --force
+
+./03-configure-mintlib --force
+make -C ../_m68k-atari-mint/_build-mintlib-Git-20170304 all install
+
+./ 04-configure-pml
+make -C ../_m68k-atari-mint/_build-pml-2.03-mint-20180703 all install
+
+./05-configure-binutils-sys-sysroot-stage2
+#make -C binutils-2.30-mint-20180703-sys-sysroot-stage2 install-strip
+
+./06-configure-gcc-sys-sysroot-stage2
+#make -C "gcc-4.6.4-mint-20180703-sys-sysroot-stage2" install-strip
+
+./07-configure-mintbin-sys-sysroot
+
+mkdir -p "$PWD/../../_packaged"

@@ -13,7 +13,11 @@ if [ ! -h "$me" ]; then
 fi
 
 patch=$(sed -ne 's:^PATCH=-mint-\([0-9]\{8\}\).*:\1:p' config.cfg)
-gpg="gpg --yes -u 52D4145B"
+
+if [ -z "${GPG_USER_ID:-}" ]; then
+    GPG_USER_ID=$(git config --get user.signingkey)
+fi
+gpg="gpg --yes -u ${GPG_USER_ID}"
 target=m68k-atari-mint
 tmp=`mktemp`
 trap "rm -f -- $tmp" EXIT
@@ -37,6 +41,7 @@ echo "patch:    ${patch}"
 echo "suffix:   ${suffix}"
 echo "sysroot:  ${sysroot}"
 echo "packaged: ${packaged}"
+echo "gpg-user: ${GPG_USER_ID}"
 
 ######################################################################
 # Draw a text in a box
