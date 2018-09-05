@@ -1,25 +1,164 @@
-#!/bin/bash -e
+#!/bin/bash -eu
 #
+# Script to build m68k-atari-mint GNU toolchain.
+#
+# by Benjamin Gerard
+#
+
+prog=build-atari-mint
+
+## Checking for needed programs (TBC)
+#
+progs=( wget,curl bison flex tar bzcat patch sed )
+for names in ${progs[@]}; do
+    found=no
+    for name in ${names//,/ }; do
+	if which $name >/dev/null 2>/dev/null ; then
+	    found=yes; break
+	fi
+    done
+    if [ $found != yes ]; then
+	echo "$prog: missing required tool -- $names" >&2
+	exit 2
+    else
+	echo "Found $name"
+    fi	
+done
 
 cd "$(dirname "$0")"
 
+chmod=true
+
+srcdir=../../_sources
+pkgdir=../../_packaged
+difdir=../../_patch
+
+free=http://vincent.riviere.free.fr/soft/m68k-atari-mint/archives
+gnu=https://ftp.gnu.org/gnu
+
+mint_version=mint-20180703
+
+binutils_orgver=binutils-2.30
+binutils_mintver=mint-20180703
+binutils_fullver=${binutils_orgver}-${binutils_mintver}
+binutils_sources=${srcdir}/${binutils_fullver}
+binutils_archive=${gnu}/binutils/${binutils_orgver}.tar.bz2
+binutils_patch=${free}/${binutils_orgver}-${binutils_mintver}.patch.bz2
+
+gcc_orgver=gcc-4.6.4
+gcc_mintver=mint-20130415
+gcc_fullver=${gcc_orgver}-${gcc_mintver}
+gcc_sources=${srcdir}/${gcc_fullver}
+gcc_archive=${gnu}/gcc/${gcc_orgver}/${gcc_orgver}.tar.bz2
+gcc_patch=${free}/${gcc_fullver}.patch.bz2
+
+mintlib_orgver=mintlib-Git-20170304
+mintlib_archives=${free}/${mintlib_orgver}.tar.gz
+
+pml_orgver=pml-2.03
+pml_mintver=mint-20110207
+pml_fullver=${pml_orgver}-${pml_mintver}
+pml_sources=${srcdir}/${pml_fullver}
+pml_archive=${free}/${pml_orgver}.tar.bz2
+pml_patch=${free}/${pml_fullver}.patch.bz2
+
+mintbin_orgver=mintbin-CVS-20110527
+mintbin_archives=${free}/${mintbin_orgver}.tar.gz
+
+if which wget >/dev/null 2>/dev/null; then
+    dlcat=wget_download
+elif which curl >/dev/null 2>/dev/null; then
+    dlcat=curl_download
+fi
+
+error_download() {
+    echo "$prog: downloader not found (support wget or curl)" >&2
+    exit 2
+}
+
+curl_download() {
+    curl -s "$@"
+}
+
+wget_download() {
+    wget -q -O - "$@"
+}
+
+test_source()
+{
+    local what=$1
+    local what_sources what_patch  what_archive
+    local what_orgver what_fullver what_mintver
+
+    eval what_sources='$'${what}_sources
+    if ! test -d ${what_sources}; then
+
+	# set -x
+	eval what_orgver='$'${what}_orgver
+	eval what_fullver='$'${what}_fullver
+	eval what_patch='$'${what}_patch
+	eval what_archive='$'${what}_archive
+	eval what_mintver='$'${what}_mintver
+	
+	mkdir -p -- ${srcdir}
+	echo "Downloading ${what_orgver}"
+	$dlcat ${what_archive} | tar -C ${srcdir} -xj
+	echo "Patching ${what_fullver} (MiNT)"
+	( cd ${srcdir}/${what_orgver} &&
+	      $dlcat ${what_patch} | bzcat | patch -s -p1 )
+
+	# Apply cfns patch for gcc only
+	if [ $what = gcc ]; then
+	    echo "Patching ${what_fullver} (cfns)"
+	    ( cd ${srcdir}/${what_orgver} &&
+		  patch -s -p1 ) <${difdir}/gcc-cfns.diff
+	fi
+
+	mv -- ${srcdir}/${what_orgver} ${what_sources}
+	echo "Make ${what_fullver} read-only"
+	$chmod a-w ${what_sources} -R
+
+	if [ $what_mintver != $mint_version ]; then
+	    rm -f -- ${srcdir}/${what_orgver}-${mint_version}
+	    ln -s -- ${what_fullver} ${srcdir}/${what_orgver}-${mint_version}
+	fi
+    fi
+}
+
+test_source binutils
 ./01-configure-binutils-stage1 --force
 
+test_source gcc
 ./02-configure-gcc-stage1 --force
 
+if ! test -d ${srcdir}/${mintlib_orgver}; then
+    echo "Downloading ${mintlib_orgver}"
+    $dlcat ${mintlib_archives} | tar -C ${srcdir} -xz
+    echo "Make ${mintlib_orgver} read-only"
+    $chmod a-w ${srcdir}/${mintlib_orgver} -R
+fi
 ./03-configure-mintlib --force
-make -C ../_m68k-atari-mint/_build-mintlib-Git-20170304 all install
+make -C ../_m68k-atari-mint/_build-${mintlib_orgver} all install
 
+test_source pml
 ./04-configure-pml --force
 make -C ../_m68k-atari-mint/_build-pml-2.03-mint-20180703 all install
 
+test_source binutils
 ./05-configure-binutils-sys-sysroot-stage2 --force
 make -C binutils-2.30-mint-20180703-sys-sysroot-stage2 install-strip
 
+test_source gcc
 ./06-configure-gcc-sys-sysroot-stage2 --force
 make -C gcc-4.6.4-mint-20180703-sys-sysroot-stage2 install-strip
 
+if ! test -d ${srcdir}/${mintbin_orgver}; then
+    echo "Downloading ${mintbin_orgver}"
+    $dlcat ${mintbin_archives} | tar -C ${srcdir} -xz
+    echo "Make ${mintbin_orgver} read-only"
+    $chmod a-w ${srcdir}/${mintbin_orgver} -R
+fi
 ./07-configure-mintbin-sys-sysroot --force
 
-mkdir -p "$PWD/../../_packaged"
+mkdir -p ${pkgdir}
 ./package-cyg64
